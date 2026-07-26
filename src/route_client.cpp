@@ -1,5 +1,5 @@
 // Route lookup via adsbdb.com (free, no API key): GET /v0/callsign/{callsign}.
-// Returns origin/destination city names (English). Device-only.
+// Returns "IATA~City" per end; the UI splits on the tilde. Device-only.
 #include "route_client.h"
 #include "config.h"
 #include <WiFi.h>
@@ -20,7 +20,7 @@ static void route_key(const char *callsign, char *out, size_t on) {
     out[j] = 0;
 }
 
-#define ROUTE_FMT_VER 3   // bump to invalidate cached routes when the label format changes
+#define ROUTE_FMT_VER 4   // bump to invalidate cached routes when the label format changes
 
 void route_cache_begin() {
     Preferences p;
@@ -68,9 +68,8 @@ void route_cache_put(const char *callsign, const char *from, const char *to) {
     p.end();
 }
 
-// Most recognizable short airport label: a cleaned-up name ("Teesside", "Palma de
-// Mallorca", "London Heathrow"), falling back to the municipality, then the IATA code.
-// "IATA|City" — the UI splits on the bar.
+// "IATA~City" — the UI splits on the tilde. Never use '|' here: the cache
+// already uses it as its own field separator.
 static void pick_airport(JsonObjectConst ap, char *out, size_t n) {
     const char *iata = ap["iata_code"] | "";
     const char *muni = ap["municipality"] | "";
@@ -81,7 +80,7 @@ static void pick_airport(JsonObjectConst ap, char *out, size_t n) {
     nm.replace(" International", "");
     nm.trim();
     const char *city = muni[0] ? muni : nm.c_str();
-    snprintf(out, n, "%s|%s", iata[0] ? iata : "---", city);
+    snprintf(out, n, "%s~%s", iata[0] ? iata : "---", city);
 }
 
 bool route_fetch(const char *callsign, char *from, size_t fn, char *to, size_t tn) {
