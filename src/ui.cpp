@@ -8,6 +8,7 @@
 #include "wx_radar.h"
 #include "cloud_image.h"
 #include "airports.h"
+#include "actype.h"
 #include "config.h"
 #include <lvgl.h>
 #include <stdio.h>
@@ -154,10 +155,11 @@ static void refresh_card(void) {
     fold_ascii(call);
     lv_label_set_text(s_cardTitle, call);
     lv_obj_set_style_text_color(s_cardTitle, in.emergency ? UI_EMERG : UI_GREEN, 0);
-    char typ[24];
-    snprintf(typ, sizeof(typ), "%s", in.type[0] ? in.type : "");
+    char typ[40];
+    snprintf(typ, sizeof(typ), "%s", in.type[0] ? actype_name(in.type) : "");
     fold_ascii(typ);
     lv_label_set_text(s_cardType, typ);
+    lv_obj_set_style_bg_opa(s_cardType, typ[0] ? 170 : 0, 0);   // no empty pill
 
     // --- altitude (hero) + unit/vertical-speed strapline ---
     char altN[16], vsS[24];
@@ -617,25 +619,7 @@ static void build_card(void) {
     lv_obj_center(s_photo);
     lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *scrim = lv_obj_create(s_photoFrame);
-    lv_obj_remove_style_all(scrim);
-    lv_obj_set_size(scrim, 466, 90);
-    lv_obj_align(scrim, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(scrim, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(scrim, 180, 0);
-    lv_obj_clear_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_cardTitle = lv_label_create(s_photoFrame);
-    lv_obj_set_style_text_font(s_cardTitle, &lv_font_montserrat_40, 0);
-    lv_obj_set_style_text_color(s_cardTitle, UI_GREEN, 0);
-    lv_label_set_text(s_cardTitle, "-");
-    lv_obj_align(s_cardTitle, LV_ALIGN_BOTTOM_MID, 0, -50);
-
-    s_cardType = lv_label_create(s_photoFrame);
-    lv_obj_set_style_text_font(s_cardType, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(s_cardType, UI_INK, 0);
-    lv_label_set_text(s_cardType, "");
-    lv_obj_align(s_cardType, LV_ALIGN_BOTTOM_MID, 0, -14);
 
     s_photoCredit = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_photoCredit, F12(), 0);
