@@ -1,7 +1,7 @@
 {
   "name": "Capsule Radar",
   "version": "__FWVER__",
-  "new_install_prompt_erase": true,
+  "new_install_prompt_erase": false,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
