@@ -619,7 +619,30 @@ static void build_card(void) {
     lv_obj_center(s_photo);
     lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
 
+    // No full-width scrim: each label carries its own rounded backing, sized to
+    // the glyphs. Enough contrast to stay readable over a bright sky, while the
+    // aircraft in the photo stays visible either side of it.
+    s_cardTitle = lv_label_create(s_photoFrame);
+    lv_obj_set_style_text_font(s_cardTitle, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_color(s_cardTitle, UI_GREEN, 0);
+    lv_obj_set_style_bg_color(s_cardTitle, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_cardTitle, 170, 0);
+    lv_obj_set_style_pad_hor(s_cardTitle, 16, 0);
+    lv_obj_set_style_pad_ver(s_cardTitle, 4, 0);
+    lv_obj_set_style_radius(s_cardTitle, 10, 0);
+    lv_label_set_text(s_cardTitle, "-");
+    lv_obj_align(s_cardTitle, LV_ALIGN_BOTTOM_MID, 0, -46);
 
+    s_cardType = lv_label_create(s_photoFrame);
+    lv_obj_set_style_text_font(s_cardType, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(s_cardType, UI_INK, 0);
+    lv_obj_set_style_bg_color(s_cardType, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_cardType, 0, 0);      // raised in refresh_card once there's text
+    lv_obj_set_style_pad_hor(s_cardType, 12, 0);
+    lv_obj_set_style_pad_ver(s_cardType, 3, 0);
+    lv_obj_set_style_radius(s_cardType, 8, 0);
+    lv_label_set_text(s_cardType, "");
+    lv_obj_align(s_cardType, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     s_photoCredit = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_photoCredit, F12(), 0);
