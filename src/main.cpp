@@ -221,19 +221,30 @@ static void adsb_task(void*) {
             // Then the on-demand lookups for the selected aircraft. Their timeouts are kept
             // short (see photo_client / route_client) so a slow photo server can't freeze the
             // feed for long; the next loop iteration polls again as soon as they return.
-            char wantCall[12];
+                       char wantCall[12];
             if (route_pending(wantCall, sizeof(wantCall))) {
-                char from[40] = "", to[40] = "";
-                if (route_cache_get(wantCall, from, sizeof(from), to, sizeof(to))) {
-                    route_store(wantCall, from, to);                       // NVS hit, no network
-                    Serial.printf("[route] %s (cache): '%s' -> '%s'\n", wantCall, from, to);
-                } else if (route_fetch(wantCall, from, sizeof(from), to, sizeof(to))) {
-                    route_store(wantCall, from, to);
-                    route_cache_put(wantCall, from, to);                  // remember across reboots
-                    Serial.printf("[route] %s (net): '%s' -> '%s'\n", wantCall, from, to);
+                // Where is this aircraft right now? adsbdb answers by callsign
+                // alone, and callsigns get reused across city pairs, so the
+                // position is what lets us throw out an impossible route.
+                double acLat = NAN, acLon = NAN;
+                if (xSemaphoreTake(g_ac_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                    for (const Aircraft &a : g_aircraft) {
+                        String f = a.flight; f.trim();
+                        if (f.length() && f == wantCall) { acLat = a.lat; acLon = a.lon; break; }
+                    }
+                    xSemaphoreGive(g_ac_mutex);
+                }
+                RouteInfo r;
+                if (route_cache_get(wantCall, acLat, acLon, r)) {
+                    route_store(wantCall, r.from, r.to);                  // NVS hit, no network
+                    Serial.printf("[route] %s (cache): '%s' -> '%s'\n", wantCall, r.from, r.to);
+                } else if (route_fetch(wantCall, acLat, acLon, r)) {
+                    route_store(wantCall, r.from, r.to);
+                    route_cache_put(wantCall, r);                         // remember across reboots
+                    Serial.printf("[route] %s (net): '%s' -> '%s'\n", wantCall, r.from, r.to);
                 } else {
-                    route_store(wantCall, from, to);   // empty -> don't refetch this session
-                    Serial.printf("[route] %s: no route\n", wantCall);
+                    route_store(wantCall, "", "");   // nothing believable -> show no route
+                    Serial.printf("[route] %s: no plausible route\n", wantCall);
                 }
             }
             char wantHex[10];
