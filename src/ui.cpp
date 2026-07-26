@@ -28,6 +28,7 @@ static lv_obj_t *s_card = nullptr, *s_cardTitle = nullptr, *s_cardL = nullptr, *
 static lv_obj_t *s_cardRoute = nullptr;
 static lv_obj_t *s_photo = nullptr, *s_photoCredit = nullptr;   // aircraft photo above the card
 static char s_lastRouteReq[12] = "";
+static uint32_t s_cardShownAt = 0;
 static lv_obj_t *s_hudWifi = nullptr, *s_hudCount = nullptr, *s_hudClock = nullptr, *s_hudBatt = nullptr, *s_hudDate = nullptr;
 static lv_obj_t *s_hudBars[4] = { nullptr, nullptr, nullptr, nullptr };   // WiFi signal-strength bars
 static lv_obj_t *s_list = nullptr;
@@ -144,9 +145,11 @@ static void refresh_card(void) {
         if (s_photo)       lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
         if (s_photoCredit) lv_obj_add_flag(s_photoCredit, LV_OBJ_FLAG_HIDDEN);
         s_lastRouteReq[0] = 0;
+        s_cardShownAt = 0;
         return;
     }
     lv_obj_clear_flag(s_card, LV_OBJ_FLAG_HIDDEN);
+    if (!s_cardShownAt || strcmp(in.call, s_lastRouteReq) != 0) s_cardShownAt = lv_tick_get();
 
     char title[40];
     if (in.type[0]) snprintf(title, sizeof(title), "%s  %s", in.call[0] ? in.call : "-", in.type);
@@ -155,18 +158,17 @@ static void refresh_card(void) {
     lv_label_set_text(s_cardTitle, title);
     lv_obj_set_style_text_color(s_cardTitle, in.emergency ? UI_EMERG : UI_INK, 0);
 
-    char altS[16], vsS[24], spdS[16], sqS[16];
+char altS[16], vsS[24], spdS[16];
     fmt_alt(altS, sizeof(altS), in.altFt, in.onGround);
     fmt_vs (vsS,  sizeof(vsS),  in.vsFpm);
     fmt_spd(spdS, sizeof(spdS), in.gsKt);
-    if (in.squawk < 0)          snprintf(sqS, sizeof(sqS), "-");
-    else                        snprintf(sqS, sizeof(sqS), "%04d", in.squawk);
 
-    char left[96], right[96];
-    snprintf(left,  sizeof(left),  "ALT  %s\nSPD  %s\nDIST %.1f %s", altS, spdS, dist_val(in.distKm), dist_unit());
-    snprintf(right, sizeof(right), "V/S  %s\nHDG  %03.0f\nSQK  %s", vsS, in.bearingDeg, sqS);
-    lv_label_set_text(s_cardL, left);
-    lv_label_set_text(s_cardR, right);
+    lv_label_set_text(s_cardL, altS);
+
+    char stats[96];
+    snprintf(stats, sizeof(stats), "%s   %.1f %s   %s",
+             spdS, dist_val(in.distKm), dist_unit(), vsS);
+    lv_label_set_text(s_cardR, stats);
 
     // route (origin -> destination), looked up asynchronously by callsign
     if (in.call[0] && strcmp(in.call, s_lastRouteReq) != 0) {
@@ -585,44 +587,60 @@ static lv_obj_t *make_round_panel(lv_obj_t *parent) {
     return p;
 }
 
+#define CARD_TIMEOUT_MS 20000   /* auto-hide after 20 s. 0 = never */
+
+
+static void card_timeout_cb(lv_timer_t *t) {
+    (void)t;
+    if (!CARD_TIMEOUT_MS || !s_cardShownAt) return;
+    if (lv_tick_elaps(s_cardShownAt) < CARD_TIMEOUT_MS) return;
+    s_cardShownAt = 0;
+    radar::select(-1);
+    refresh_card();
+}
+
 static void build_card(void) {
     s_card = lv_obj_create(s_tileRadar);
     lv_obj_remove_style_all(s_card);
-    // large text needs a taller card (three 18px data lines + the route line below them)
-    lv_obj_set_size(s_card, s_bigText ? 316 : 300, s_bigText ? 148 : 118);
-    lv_obj_align(s_card, LV_ALIGN_CENTER, 0, s_bigText ? 56 : 66);
+    lv_obj_set_size(s_card, 466, 258);
+    lv_obj_align(s_card, LV_ALIGN_CENTER, 0, 104);
     lv_obj_set_style_bg_color(s_card, UI_PANEL, 0);
-    lv_obj_set_style_bg_opa(s_card, 235, 0);
-    lv_obj_set_style_radius(s_card, 14, 0);
-    lv_obj_set_style_border_color(s_card, UI_GREEN, 0);
-    lv_obj_set_style_border_opa(s_card, 90, 0);
-    lv_obj_set_style_border_width(s_card, 1, 0);
-    lv_obj_set_style_pad_all(s_card, 12, 0);
-    lv_obj_add_flag(s_card, LV_OBJ_FLAG_CLICKABLE);   // consume taps (don't deselect)
+    lv_obj_set_style_bg_opa(s_card, 255, 0);
+    lv_obj_set_style_radius(s_card, 24, 0);
+    lv_obj_set_style_border_width(s_card, 0, 0);
+    lv_obj_set_style_pad_all(s_card, 0, 0);
+    lv_obj_add_flag(s_card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(s_card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_card, LV_OBJ_FLAG_HIDDEN);
 
     s_cardTitle = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_cardTitle, F16(), 0);
     lv_obj_set_style_text_color(s_cardTitle, UI_INK, 0);
-    lv_obj_align(s_cardTitle, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_align(s_cardTitle, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_cardTitle, LV_ALIGN_TOP_MID, 0, 6);
+
+    s_cardRoute = lv_label_create(s_card);
+    lv_obj_set_style_text_font(s_cardRoute, F16(), 0);
+    lv_obj_set_style_text_color(s_cardRoute, UI_GREEN, 0);
+    lv_obj_set_width(s_cardRoute, 400);
+    lv_label_set_long_mode(s_cardRoute, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(s_cardRoute, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_cardRoute, LV_ALIGN_TOP_MID, 0, 44);
 
     s_cardL = lv_label_create(s_card);
-    lv_obj_set_style_text_font(s_cardL, F14(), 0);
-    lv_obj_set_style_text_color(s_cardL, UI_SOFT, 0);
-    lv_obj_align(s_cardL, LV_ALIGN_TOP_LEFT, 0, s_bigText ? 30 : 26);
+    lv_obj_set_style_text_font(s_cardL, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(s_cardL, UI_INK, 0);
+    lv_obj_set_style_text_align(s_cardL, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_cardL, LV_ALIGN_TOP_MID, 0, 112);
 
     s_cardR = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_cardR, F14(), 0);
     lv_obj_set_style_text_color(s_cardR, UI_SOFT, 0);
-    lv_obj_align(s_cardR, LV_ALIGN_TOP_LEFT, s_bigText ? 160 : 150, s_bigText ? 30 : 26);
+    lv_obj_set_style_text_align(s_cardR, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_cardR, LV_ALIGN_TOP_MID, 0, 164);
 
-    s_cardRoute = lv_label_create(s_card);
-    lv_obj_set_style_text_font(s_cardRoute, F14(), 0);
-    lv_obj_set_style_text_color(s_cardRoute, UI_GREEN, 0);
-    lv_obj_align(s_cardRoute, LV_ALIGN_TOP_LEFT, 0, s_bigText ? 100 : 76);
+    lv_timer_create(card_timeout_cb, 500, NULL);
 
-    // aircraft photo + credit, floating above the card (hidden until one loads)
     s_photo = lv_canvas_create(s_tileRadar);
     lv_obj_set_style_radius(s_photo, 6, 0);
     lv_obj_set_style_clip_corner(s_photo, true, 0);
