@@ -3,6 +3,10 @@ name: Build firmware & deploy web flasher
 # Builds the ESP32-S3 firmware, merges it into a single binary, and publishes the
 # browser web-flasher (web/flash/) to GitHub Pages so makers can flash from Chrome/Edge.
 #
+# Also uploads the app-only image as a downloadable artifact. Upload that one at
+# http://capsuleradar.local/update to update over WiFi — it replaces the app and
+# leaves NVS alone, so WiFi credentials, location, theme and range all survive.
+#
 # One-time setup in the repo: Settings -> Pages -> Source = "GitHub Actions".
 
 on:
@@ -58,6 +62,16 @@ jobs:
             0x8000  "$B/partitions.bin" \
             0xe000  "$BOOT_APP0" \
             0x10000 "$B/firmware.bin"
+
+      - name: Stage the OTA image
+        run: cp .pio/build/esp32-s3-amoled-175/firmware.bin CapsuleRadar-ota.bin
+
+      - name: Upload the OTA image
+        uses: actions/upload-artifact@v4
+        with:
+          name: CapsuleRadar-ota
+          path: CapsuleRadar-ota.bin
+          if-no-files-found: error
 
       - uses: actions/upload-pages-artifact@v3
         with:
