@@ -191,8 +191,8 @@ static void refresh_card(void) {
     }
     char rfrom[48], rto[48];
     if (in.call[0] && route_get(in.call, rfrom, sizeof(rfrom), rto, sizeof(rto))) {
-        char *fb = strchr(rfrom, '|');
-        char *tb = strchr(rto, '|');
+        char *fb = strchr(rfrom, '~');
+        char *tb = strchr(rto, '~');
         char fcity[40] = "", tcity[40] = "";
         if (fb) { snprintf(fcity, sizeof(fcity), "%s", fb + 1); *fb = 0; }
         if (tb) { snprintf(tcity, sizeof(tcity), "%s", tb + 1); *tb = 0; }
@@ -617,23 +617,31 @@ static void build_card(void) {
     lv_obj_center(s_photo);
     lv_obj_add_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
 
+    lv_obj_t *scrim = lv_obj_create(s_photoFrame);
+    lv_obj_remove_style_all(scrim);
+    lv_obj_set_size(scrim, 466, 90);
+    lv_obj_align(scrim, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(scrim, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(scrim, 180, 0);
+    lv_obj_clear_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
+
     s_cardTitle = lv_label_create(s_photoFrame);
-    lv_obj_set_style_text_font(s_cardTitle, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(s_cardTitle, &lv_font_montserrat_40, 0);
     lv_obj_set_style_text_color(s_cardTitle, UI_GREEN, 0);
     lv_label_set_text(s_cardTitle, "-");
-    lv_obj_align(s_cardTitle, LV_ALIGN_BOTTOM_MID, 0, -34);
+    lv_obj_align(s_cardTitle, LV_ALIGN_BOTTOM_MID, 0, -50);
 
     s_cardType = lv_label_create(s_photoFrame);
-    lv_obj_set_style_text_font(s_cardType, F14(), 0);
+    lv_obj_set_style_text_font(s_cardType, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(s_cardType, UI_INK, 0);
     lv_label_set_text(s_cardType, "");
-    lv_obj_align(s_cardType, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_align(s_cardType, LV_ALIGN_BOTTOM_MID, 0, -14);
 
     s_photoCredit = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_photoCredit, F12(), 0);
     lv_obj_set_style_text_color(s_photoCredit, UI_DIM, 0);
     lv_label_set_text(s_photoCredit, "");
-    lv_obj_align(s_photoCredit, LV_ALIGN_TOP_MID, 0, 179);
+    lv_obj_align(s_photoCredit, LV_ALIGN_TOP_MID, 0, 180);
     lv_obj_add_flag(s_photoCredit, LV_OBJ_FLAG_HIDDEN);
 
     // --- route: LHR ——> JFK with cities beneath ---
@@ -641,18 +649,18 @@ static void build_card(void) {
     lv_obj_set_style_text_font(s_rFrom, &lv_font_montserrat_36, 0);
     lv_obj_set_style_text_color(s_rFrom, UI_GREEN, 0);
     lv_label_set_text(s_rFrom, "---");
-    lv_obj_align(s_rFrom, LV_ALIGN_TOP_LEFT, 54, 202);
+    lv_obj_align(s_rFrom, LV_ALIGN_TOP_LEFT, 48, 198);
 
     s_rTo = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_rTo, &lv_font_montserrat_36, 0);
     lv_obj_set_style_text_color(s_rTo, UI_GREEN, 0);
     lv_label_set_text(s_rTo, "---");
-    lv_obj_align(s_rTo, LV_ALIGN_TOP_RIGHT, -54, 202);
+    lv_obj_align(s_rTo, LV_ALIGN_TOP_RIGHT, -48, 198);
 
     s_rLine = lv_obj_create(s_card);
     lv_obj_remove_style_all(s_rLine);
-    lv_obj_set_size(s_rLine, 132, 2);
-    lv_obj_align(s_rLine, LV_ALIGN_TOP_MID, 0, 222);
+    lv_obj_set_size(s_rLine, 104, 2);
+    lv_obj_align(s_rLine, LV_ALIGN_TOP_MID, -10, 218);
     lv_obj_set_style_bg_color(s_rLine, UI_GREEN, 0);
     lv_obj_set_style_bg_opa(s_rLine, 130, 0);
 
@@ -660,51 +668,51 @@ static void build_card(void) {
     lv_obj_set_style_text_font(s_rPlane, F14(), 0);
     lv_obj_set_style_text_color(s_rPlane, UI_GREEN, 0);
     lv_label_set_text(s_rPlane, LV_SYMBOL_RIGHT);
-    lv_obj_align(s_rPlane, LV_ALIGN_TOP_MID, 0, 212);
+    lv_obj_align(s_rPlane, LV_ALIGN_TOP_MID, 50, 209);
 
     s_rFromCity = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_rFromCity, F12(), 0);
     lv_obj_set_style_text_color(s_rFromCity, UI_DIM, 0);
     lv_label_set_text(s_rFromCity, "");
-    lv_obj_align(s_rFromCity, LV_ALIGN_TOP_LEFT, 54, 248);
+    lv_obj_align(s_rFromCity, LV_ALIGN_TOP_LEFT, 48, 244);
 
     s_rToCity = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_rToCity, F12(), 0);
     lv_obj_set_style_text_color(s_rToCity, UI_DIM, 0);
     lv_obj_set_style_text_align(s_rToCity, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(s_rToCity, "");
-    lv_obj_align(s_rToCity, LV_ALIGN_TOP_RIGHT, -54, 248);
+    lv_obj_align(s_rToCity, LV_ALIGN_TOP_RIGHT, -48, 244);
 
     // --- altitude hero + strapline ---
     s_cardL = lv_label_create(s_card);
-    lv_obj_set_style_text_font(s_cardL, &lv_font_montserrat_36, 0);
+    lv_obj_set_style_text_font(s_cardL, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(s_cardL, UI_INK, 0);
     lv_obj_set_style_text_align(s_cardL, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_cardL, "-");
-    lv_obj_align(s_cardL, LV_ALIGN_TOP_MID, 0, 288);
+    lv_obj_align(s_cardL, LV_ALIGN_TOP_MID, 0, 266);
 
     s_cardR = lv_label_create(s_card);
-    lv_obj_set_style_text_font(s_cardR, F12(), 0);
+    lv_obj_set_style_text_font(s_cardR, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(s_cardR, UI_SOFT, 0);
     lv_obj_set_style_text_align(s_cardR, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_cardR, "");
-    lv_obj_align(s_cardR, LV_ALIGN_TOP_MID, 0, 334);
+    lv_obj_align(s_cardR, LV_ALIGN_TOP_MID, 0, 328);
 
     // --- three labelled stat columns ---
     const char *hdr[3] = { "spd", "range", "brg" };
-    const int hx[3] = { -110, 0, 110 };
+    const int hx[3] = { -100, 0, 100 };
     for (int i = 0; i < 3; ++i) {
         s_statHdr[i] = lv_label_create(s_card);
-        lv_obj_set_style_text_font(s_statHdr[i], F12(), 0);
+        lv_obj_set_style_text_font(s_statHdr[i], &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(s_statHdr[i], UI_DIM, 0);
         lv_label_set_text(s_statHdr[i], hdr[i]);
-        lv_obj_align(s_statHdr[i], LV_ALIGN_TOP_MID, hx[i], 368);
+        lv_obj_align(s_statHdr[i], LV_ALIGN_TOP_MID, hx[i], 358);
 
         s_statVal[i] = lv_label_create(s_card);
-        lv_obj_set_style_text_font(s_statVal[i], F16(), 0);
+        lv_obj_set_style_text_font(s_statVal[i], &lv_font_montserrat_28, 0);
         lv_obj_set_style_text_color(s_statVal[i], UI_INK, 0);
         lv_label_set_text(s_statVal[i], "-");
-        lv_obj_align(s_statVal[i], LV_ALIGN_TOP_MID, hx[i], 390);
+        lv_obj_align(s_statVal[i], LV_ALIGN_TOP_MID, hx[i], 386);
     }
 
     lv_timer_create(card_timeout_cb, 500, NULL);
