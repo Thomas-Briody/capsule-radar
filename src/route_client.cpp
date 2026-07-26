@@ -20,7 +20,7 @@ static void route_key(const char *callsign, char *out, size_t on) {
     out[j] = 0;
 }
 
-#define ROUTE_FMT_VER 2   // bump to invalidate cached routes when the label format changes
+#define ROUTE_FMT_VER 3   // bump to invalidate cached routes when the label format changes
 
 void route_cache_begin() {
     Preferences p;
@@ -70,20 +70,18 @@ void route_cache_put(const char *callsign, const char *from, const char *to) {
 
 // Most recognizable short airport label: a cleaned-up name ("Teesside", "Palma de
 // Mallorca", "London Heathrow"), falling back to the municipality, then the IATA code.
+// "IATA|City" — the UI splits on the bar.
 static void pick_airport(JsonObjectConst ap, char *out, size_t n) {
-    String s = (const char *)(ap["name"] | "");
-    s.replace(" International Airport", "");
-    s.replace(" Regional Airport", "");
-    s.replace(" Airport", "");
-    s.replace(" International", "");
-    s.trim();
-    if (s.length() == 0 || s.length() > 18) {           // name missing or too long -> municipality/IATA
-        const char *muni = ap["municipality"] | "";
-        const char *iata = ap["iata_code"] | "";
-        snprintf(out, n, "%s", muni[0] ? muni : iata);
-        return;
-    }
-    snprintf(out, n, "%s", s.c_str());
+    const char *iata = ap["iata_code"] | "";
+    const char *muni = ap["municipality"] | "";
+    String nm = (const char *)(ap["name"] | "");
+    nm.replace(" International Airport", "");
+    nm.replace(" Regional Airport", "");
+    nm.replace(" Airport", "");
+    nm.replace(" International", "");
+    nm.trim();
+    const char *city = muni[0] ? muni : nm.c_str();
+    snprintf(out, n, "%s|%s", iata[0] ? iata : "---", city);
 }
 
 bool route_fetch(const char *callsign, char *from, size_t fn, char *to, size_t tn) {
