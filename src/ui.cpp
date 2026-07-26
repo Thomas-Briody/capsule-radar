@@ -61,7 +61,7 @@ void ui_set_units(int u) { s_units = (u < 0 || u > 2) ? 0 : u; }
 // Accessibility: "large text" swaps every font one-or-two steps up. The flag must be
 // set BEFORE ui_create() — fonts are baked into the widgets at creation time (the web
 // toggle saves to NVS and reboots, so it always takes effect through this path).
-static bool s_bigText = false;
+static bool s_bigText = true;
 void ui_set_large_text(bool on) { s_bigText = on; }
 static const lv_font_t *F12() { return s_bigText ? &lv_font_montserrat_16 : &lv_font_montserrat_12; }
 static const lv_font_t *F14() { return s_bigText ? &lv_font_montserrat_18 : &lv_font_montserrat_14; }
