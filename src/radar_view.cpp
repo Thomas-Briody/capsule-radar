@@ -129,27 +129,42 @@ static std::map<std::string, std::vector<lv_point_t>> s_trails;
 // code so a 777 doesn't look like a Cessna. Points are local coords (nose = -y),
 // rotated by the aircraft's track at draw time.
 enum AcShape { SHAPE_NARROW = 0, SHAPE_WIDE, SHAPE_LIGHT, SHAPE_HELI, SHAPE_COUNT };
-#define GLYPH_MAX_PTS 16
-struct GlyphShape { uint8_t n; float k; float x[GLYPH_MAX_PTS]; float y[GLYPH_MAX_PTS]; };
+#define GLYPH_MAX_PTS   6      // points per convex part
+#define GLYPH_MAX_PARTS 4      // fuselage + 2 wings + tailplane
+
+// IMPORTANT: every part below must be CONVEX. LVGL v8's polygon renderer only
+// handles convex outlines reliably — a concave outline (wings notching back into
+// the fuselage) can stall the draw and freeze the panel on its last good frame.
+// So each silhouette is assembled from convex pieces drawn in the same colour,
+// which is both safe and cheaper to rasterise than one big mask.
+struct GlyphPart  { uint8_t n; float x[GLYPH_MAX_PTS]; float y[GLYPH_MAX_PTS]; };
+struct GlyphShape { uint8_t nparts; float k; GlyphPart part[GLYPH_MAX_PARTS]; };
 
 // k = per-shape size trim so the wider planforms don't out-weigh the others.
 static const GlyphShape GLYPHS[SHAPE_COUNT] = {
-    // narrowbody jet — swept wings, tailplane (A320 / 737 / E-jet)
-    { 14, 0.85f,
-      {  0.0f,  2.0f, 12.0f, 12.0f,  2.0f,  2.0f,  5.0f,  0.0f, -5.0f, -2.0f, -2.0f, -12.0f, -12.0f, -2.0f },
-      {-11.0f, -3.0f,  3.0f,  5.0f,  3.0f,  8.0f, 11.0f, 10.0f, 11.0f,  8.0f,  3.0f,   5.0f,   3.0f, -3.0f } },
+    // narrowbody jet — swept wings + tailplane (A320 / 737 / E-jet)
+    { 4, 0.85f, {
+        { 5, {  0.0f,  2.0f,  2.0f, -2.0f, -2.0f }, {-11.0f, -5.0f, 10.0f, 10.0f, -5.0f } },
+        { 4, {  1.0f, 12.0f, 12.0f,  1.0f },        { -2.0f,  5.0f,  7.0f,  4.0f } },
+        { 4, { -1.0f,-12.0f,-12.0f, -1.0f },        { -2.0f,  5.0f,  7.0f,  4.0f } },
+        { 4, {  5.0f,  5.0f, -5.0f, -5.0f },        {  9.0f, 11.0f, 11.0f,  9.0f } } } },
     // widebody — longer fuselage, greater span (777 / 787 / A350 / 747)
-    { 16, 0.80f,
-      {  0.0f,  3.0f, 15.0f, 15.0f,  3.0f,  3.0f,  7.0f,  7.0f,  0.0f, -7.0f, -7.0f, -3.0f, -3.0f, -15.0f, -15.0f, -3.0f },
-      {-13.0f, -4.0f,  4.0f,  7.0f,  3.0f,  9.0f, 13.0f, 15.0f, 13.0f, 15.0f, 13.0f,  9.0f,  3.0f,   7.0f,   4.0f, -4.0f } },
+    { 4, 0.80f, {
+        { 5, {  0.0f,  3.0f,  3.0f, -3.0f, -3.0f }, {-13.0f, -6.0f, 12.0f, 12.0f, -6.0f } },
+        { 4, {  2.0f, 15.0f, 15.0f,  2.0f },        { -3.0f,  6.0f,  9.0f,  3.0f } },
+        { 4, { -2.0f,-15.0f,-15.0f, -2.0f },        { -3.0f,  6.0f,  9.0f,  3.0f } },
+        { 4, {  7.0f,  7.0f, -7.0f, -7.0f },        { 12.0f, 15.0f, 15.0f, 12.0f } } } },
     // light aircraft — straight high wing, stubby (C172 / PA28 / SR22)
-    { 14, 1.00f,
-      {  0.0f,  2.0f, 11.0f, 11.0f,  2.0f,  2.0f,  5.0f,  0.0f, -5.0f, -2.0f, -2.0f, -11.0f, -11.0f, -2.0f },
-      { -8.0f, -3.0f,  0.0f,  2.0f,  2.0f,  6.0f,  9.0f,  8.0f,  9.0f,  6.0f,  2.0f,   2.0f,   0.0f, -3.0f } },
-    // helicopter — slim fuselage + tail boom; rotor disc drawn as an arc on top
-    {  8, 1.00f,
-      {  0.0f,  3.0f,  3.0f,  1.5f,  1.5f, -1.5f, -1.5f, -3.0f },
-      { -9.0f, -5.0f,  4.0f,  6.0f, 13.0f, 13.0f,  6.0f,  4.0f } }
+    { 4, 1.00f, {
+        { 5, {  0.0f,  2.0f,  2.0f, -2.0f, -2.0f }, { -8.0f, -4.0f,  8.0f,  8.0f, -4.0f } },
+        { 4, {  1.0f, 11.0f, 11.0f,  1.0f },        { -3.0f, -1.0f,  2.0f,  2.0f } },
+        { 4, { -1.0f,-11.0f,-11.0f, -1.0f },        { -3.0f, -1.0f,  2.0f,  2.0f } },
+        { 4, {  5.0f,  5.0f, -5.0f, -5.0f },        {  7.0f,  9.0f,  9.0f,  7.0f } } } },
+    // helicopter — fuselage + tail boom + tail fin; rotor disc drawn as an arc
+    { 3, 1.00f, {
+        { 5, {  0.0f,  3.0f,  3.0f, -3.0f, -3.0f }, { -7.0f, -3.0f,  4.0f,  4.0f, -3.0f } },
+        { 4, {  1.5f,  1.5f, -1.5f, -1.5f },        {  4.0f, 13.0f, 13.0f,  4.0f } },
+        { 4, {  3.0f,  3.0f, -1.5f, -1.5f },        { 11.0f, 14.0f, 14.0f, 11.0f } } } }
 };
 
 static inline bool pfx(const char *t, const char *p) { return strncmp(t, p, strlen(p)) == 0; }
@@ -513,18 +528,21 @@ static void ac_draw_cb(lv_event_t *e) {
             const float c = cosf(th), s = sinf(th);
             const GlyphShape &gs = GLYPHS[ac.shape < SHAPE_COUNT ? ac.shape : SHAPE_NARROW];
             const float kk = k * gs.k;
-            lv_point_t pts[GLYPH_MAX_PTS];
-            for (int i = 0; i < gs.n; ++i) {
-                const float x = (gs.x[i] * c - gs.y[i] * s) * kk;
-                const float y = (gs.x[i] * s + gs.y[i] * c) * kk;
-                pts[i].x = (lv_coord_t)(ac.pos.x + (lv_coord_t)lroundf(x));
-                pts[i].y = (lv_coord_t)(ac.pos.y + (lv_coord_t)lroundf(y));
-            }
             lv_draw_rect_dsc_t g;
             lv_draw_rect_dsc_init(&g);
             g.bg_color = ac.color;
             g.bg_opa = LV_OPA_COVER;
-            lv_draw_polygon(d, &g, pts, gs.n);
+            lv_point_t pts[GLYPH_MAX_PTS];
+            for (int q = 0; q < gs.nparts; ++q) {          // each part is convex
+                const GlyphPart &pt = gs.part[q];
+                for (int i = 0; i < pt.n; ++i) {
+                    const float x = (pt.x[i] * c - pt.y[i] * s) * kk;
+                    const float y = (pt.x[i] * s + pt.y[i] * c) * kk;
+                    pts[i].x = (lv_coord_t)(ac.pos.x + (lv_coord_t)lroundf(x));
+                    pts[i].y = (lv_coord_t)(ac.pos.y + (lv_coord_t)lroundf(y));
+                }
+                lv_draw_polygon(d, &g, pts, pt.n);
+            }
             if (ac.shape == SHAPE_HELI) {          // rotor disc over the fuselage
                 lv_draw_arc_dsc_t rd;
                 lv_draw_arc_dsc_init(&rd);
