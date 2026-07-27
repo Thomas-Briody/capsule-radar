@@ -62,7 +62,7 @@
 #define FLOW_OPA          55
 #define ORB_BLIPS      7
 #define ORB_ARROWS     8
-#define BALL_R            9
+#define BALL_R            11
 #define WAVE_EXPAND       28.0f
 
 static int        s_theme    = THEME_PHOSPHOR;
@@ -118,13 +118,65 @@ struct AcDraw {
     bool       onGround;
     float      vsFpm, gsKt, distKm, bearingDeg;
     int        squawk;
+    uint8_t    shape;          // AcShape, derived from the ICAO type code
     std::vector<lv_point_t> trail;
 };
 static std::vector<AcDraw> s_acs;
 static std::map<std::string, std::vector<lv_point_t>> s_trails;
 
-static const float GX[4] = { 0.0f,  7.0f, 0.0f, -7.0f };
-static const float GY[4] = { -11.0f, 5.0f, 8.0f, 5.0f };
+// ---------------------- aircraft glyph silhouettes ---------------------------
+// Instead of one generic dart for everything, pick a planform from the ICAO type
+// code so a 777 doesn't look like a Cessna. Points are local coords (nose = -y),
+// rotated by the aircraft's track at draw time.
+enum AcShape { SHAPE_NARROW = 0, SHAPE_WIDE, SHAPE_LIGHT, SHAPE_HELI, SHAPE_COUNT };
+#define GLYPH_MAX_PTS 16
+struct GlyphShape { uint8_t n; float k; float x[GLYPH_MAX_PTS]; float y[GLYPH_MAX_PTS]; };
+
+// k = per-shape size trim so the wider planforms don't out-weigh the others.
+static const GlyphShape GLYPHS[SHAPE_COUNT] = {
+    // narrowbody jet — swept wings, tailplane (A320 / 737 / E-jet)
+    { 14, 0.85f,
+      {  0.0f,  2.0f, 12.0f, 12.0f,  2.0f,  2.0f,  5.0f,  0.0f, -5.0f, -2.0f, -2.0f, -12.0f, -12.0f, -2.0f },
+      {-11.0f, -3.0f,  3.0f,  5.0f,  3.0f,  8.0f, 11.0f, 10.0f, 11.0f,  8.0f,  3.0f,   5.0f,   3.0f, -3.0f } },
+    // widebody — longer fuselage, greater span (777 / 787 / A350 / 747)
+    { 16, 0.80f,
+      {  0.0f,  3.0f, 15.0f, 15.0f,  3.0f,  3.0f,  7.0f,  7.0f,  0.0f, -7.0f, -7.0f, -3.0f, -3.0f, -15.0f, -15.0f, -3.0f },
+      {-13.0f, -4.0f,  4.0f,  7.0f,  3.0f,  9.0f, 13.0f, 15.0f, 13.0f, 15.0f, 13.0f,  9.0f,  3.0f,   7.0f,   4.0f, -4.0f } },
+    // light aircraft — straight high wing, stubby (C172 / PA28 / SR22)
+    { 14, 1.00f,
+      {  0.0f,  2.0f, 11.0f, 11.0f,  2.0f,  2.0f,  5.0f,  0.0f, -5.0f, -2.0f, -2.0f, -11.0f, -11.0f, -2.0f },
+      { -8.0f, -3.0f,  0.0f,  2.0f,  2.0f,  6.0f,  9.0f,  8.0f,  9.0f,  6.0f,  2.0f,   2.0f,   0.0f, -3.0f } },
+    // helicopter — slim fuselage + tail boom; rotor disc drawn as an arc on top
+    {  8, 1.00f,
+      {  0.0f,  3.0f,  3.0f,  1.5f,  1.5f, -1.5f, -1.5f, -3.0f },
+      { -9.0f, -5.0f,  4.0f,  6.0f, 13.0f, 13.0f,  6.0f,  4.0f } }
+};
+
+static inline bool pfx(const char *t, const char *p) { return strncmp(t, p, strlen(p)) == 0; }
+
+// Map an ICAO type designator (airplanes.live "t" field) to a planform.
+static uint8_t shape_for_type(const char *t) {
+    if (!t || !t[0]) return SHAPE_NARROW;                 // unknown: the common case
+    static const char *WIDE[] = { "B74","B77","B78","B76","A33","A34","A35","A38","A30","A31","MD11",
+                                  "IL76","IL96","A124","AN22","C5M","KC10","B52","C17", nullptr };
+    static const char *HELI[] = { "R22","R44","R66","EC","AS3","AS5","H1","S76","S92","B06","B47",
+                                  "A109","A139","A169","A189","MD5","UH","CH","SK","GAZL","LYNX",
+                                  "PUMA","EH10","NH90","H500", nullptr };
+    static const char *LIGHT[] = { "C1","C2","P28","PA2","PA3","PA4","SR2","DA4","DA2","BE2","BE3",
+                                   "BE9","AA5","GLID","M20","RV","TBM","PC12","AT","EUR","G115",
+                                   "SF25","DIMO","ULAC","P68","VANS","CRUZ", nullptr };
+    for (const char **p = WIDE;  *p; ++p) if (pfx(t, *p)) return SHAPE_WIDE;
+    for (const char **p = HELI;  *p; ++p) if (pfx(t, *p)) return SHAPE_HELI;
+    for (const char **p = LIGHT; *p; ++p) if (pfx(t, *p)) return SHAPE_LIGHT;
+    return SHAPE_NARROW;
+}
+
+// Plane glyph size. The original dart was ~14×19 px — small on the 466 px round
+// AMOLED. GLYPH_SCALE_BASE enlarges every phosphor-family glyph (and its emergency
+// halo / selection ring); large-text mode bumps it a further 25% for at-a-distance
+// legibility. Keep <= 2.0 so the rotated glyph stays inside glyph_bbox().
+#define GLYPH_SCALE_BASE 1.8f
+static inline float glyph_scale() { return s_bigText ? GLYPH_SCALE_BASE * 1.25f : GLYPH_SCALE_BASE; }
 
 static inline bool orb() { return s_theme == THEME_ORB; }
 
@@ -290,11 +342,12 @@ static void wedge_bbox(float deg, lv_area_t *out) {
 }
 
 // glyph + label bounding box (for partial invalidation during the glide).
-// Must cover the label areas drawn in the aircraft layer (they grew for large-text mode).
+// Must cover the label areas drawn in the aircraft layer (they grew for large-text mode)
+// and the scaled glyph (max rotated radius = 11 px × glyph scale, plus halo margin).
 static inline lv_area_t glyph_bbox(lv_point_t p) {
     lv_area_t a;
-    if (orb()) { a.x1 = p.x - 30; a.y1 = p.y - 30; a.x2 = p.x + 30;  a.y2 = p.y + 30; }
-    else          { a.x1 = p.x - 22; a.y1 = p.y - 22; a.x2 = p.x + 174; a.y2 = p.y + 32; }
+    if (orb()) { a.x1 = p.x - 34; a.y1 = p.y - 34; a.x2 = p.x + 34;  a.y2 = p.y + 34; }
+    else          { a.x1 = p.x - 44; a.y1 = p.y - 44; a.x2 = p.x + 174; a.y2 = p.y + 48; }
     return a;
 }
 static inline void area_union(lv_area_t &d, const lv_area_t &s) {
@@ -338,8 +391,8 @@ static void sweep_timer_cb(lv_timer_t *t) {
             if (!ac.inRange) continue;
             if (balls >= ORB_BLIPS) break;
             balls++;
-            lv_area_t a = { (lv_coord_t)(ac.pos.x - 44), (lv_coord_t)(ac.pos.y - 44),
-                            (lv_coord_t)(ac.pos.x + 44), (lv_coord_t)(ac.pos.y + 44) };
+            lv_area_t a = { (lv_coord_t)(ac.pos.x - 48), (lv_coord_t)(ac.pos.y - 48),
+                            (lv_coord_t)(ac.pos.x + 48), (lv_coord_t)(ac.pos.y + 48) };
             lv_obj_invalidate_area(s_acLayer, &a);
         }
         return;
@@ -406,7 +459,7 @@ static void draw_ball(lv_draw_ctx_t *d, const AcDraw &ac) {
     hl.bg_color = lv_color_hex(0xFFFBCC);
     hl.bg_opa = 170;
     hl.radius = LV_RADIUS_CIRCLE;
-    lv_area_t hr = { (lv_coord_t)(ac.pos.x - 5), (lv_coord_t)(ac.pos.y - 6),
+    lv_area_t hr = { (lv_coord_t)(ac.pos.x - 6), (lv_coord_t)(ac.pos.y - 7),
                      (lv_coord_t)(ac.pos.x - 1), (lv_coord_t)(ac.pos.y - 2) };
     lv_draw_rect(d, &hl, &hr);
 }
@@ -439,6 +492,7 @@ static void ac_draw_cb(lv_event_t *e) {
     lv_draw_ctx_t *d = lv_event_get_draw_ctx(e);
     const bool drg = orb();
     int balls = 0, arrows = 0;
+    const float k = glyph_scale();
 
     for (const AcDraw &ac : s_acs) {
         if (drg) {
@@ -457,10 +511,12 @@ static void ac_draw_cb(lv_event_t *e) {
             draw_trail(d, ac, ac.color);
             const float th = ((ac.track != ac.track) ? 0.0f : ac.track) * (float)M_PI / 180.0f;
             const float c = cosf(th), s = sinf(th);
-            lv_point_t pts[4];
-            for (int i = 0; i < 4; ++i) {
-                const float x = GX[i] * c - GY[i] * s;
-                const float y = GX[i] * s + GY[i] * c;
+            const GlyphShape &gs = GLYPHS[ac.shape < SHAPE_COUNT ? ac.shape : SHAPE_NARROW];
+            const float kk = k * gs.k;
+            lv_point_t pts[GLYPH_MAX_PTS];
+            for (int i = 0; i < gs.n; ++i) {
+                const float x = (gs.x[i] * c - gs.y[i] * s) * kk;
+                const float y = (gs.x[i] * s + gs.y[i] * c) * kk;
                 pts[i].x = (lv_coord_t)(ac.pos.x + (lv_coord_t)lroundf(x));
                 pts[i].y = (lv_coord_t)(ac.pos.y + (lv_coord_t)lroundf(y));
             }
@@ -468,12 +524,20 @@ static void ac_draw_cb(lv_event_t *e) {
             lv_draw_rect_dsc_init(&g);
             g.bg_color = ac.color;
             g.bg_opa = LV_OPA_COVER;
-            lv_draw_polygon(d, &g, pts, 4);
+            lv_draw_polygon(d, &g, pts, gs.n);
+            if (ac.shape == SHAPE_HELI) {          // rotor disc over the fuselage
+                lv_draw_arc_dsc_t rd;
+                lv_draw_arc_dsc_init(&rd);
+                rd.color = ac.color;
+                rd.width = 2;
+                rd.opa = 130;
+                lv_draw_arc(d, &rd, &ac.pos, (lv_coord_t)lroundf(11.0f * kk), 0, 360);
+            }
             if (ac.emergency) {
                 lv_draw_arc_dsc_t h;
                 lv_draw_arc_dsc_init(&h);
                 h.color = COL_EMERG; h.width = 2; h.opa = 200;
-                lv_draw_arc(d, &h, &ac.pos, 16, 0, 360);
+                lv_draw_arc(d, &h, &ac.pos, (lv_coord_t)lroundf(16.0f * GLYPH_SCALE_BASE), 0, 360);
             }
         }
 
@@ -489,7 +553,7 @@ static void ac_draw_cb(lv_event_t *e) {
                 lv_draw_arc(d, &sr, &ac.pos, 23, 0, 360);
             } else {
                 sr.color = ac.emergency ? COL_EMERG : s_cInk;
-                lv_draw_arc(d, &sr, &ac.pos, 19, 0, 360);
+                lv_draw_arc(d, &sr, &ac.pos, (lv_coord_t)lroundf(19.0f * GLYPH_SCALE_BASE), 0, 360);
             }
         }
 
@@ -499,7 +563,7 @@ static void ac_draw_cb(lv_event_t *e) {
             lv_draw_label_dsc_init(&lc);
             lc.font = s_bigText ? &lv_font_montserrat_18 : &lv_font_montserrat_14;
             lc.color = s_cInk;
-            lv_area_t a1 = { (lv_coord_t)(ac.pos.x + 12), (lv_coord_t)(ac.pos.y - 14),
+            lv_area_t a1 = { (lv_coord_t)(ac.pos.x + 20), (lv_coord_t)(ac.pos.y - 14),
                              (lv_coord_t)(ac.pos.x + 168), (lv_coord_t)(ac.pos.y + 4) };
             if (ac.call[0]) lv_draw_label(d, &lc, &a1, ac.call, NULL);
             lv_draw_label_dsc_t la;
@@ -774,6 +838,7 @@ void update(const std::vector<Aircraft> &aircraft, const RadarSettings &s) {
         d.distKm = (float)distKm;
         d.bearingDeg = (float)brg;
         d.squawk = ac.squawk;
+        d.shape = shape_for_type(d.type);        // planform from the ICAO type code
         if (ac.onGround) snprintf(d.altTxt, sizeof(d.altTxt), "GND");
         else             snprintf(d.altTxt, sizeof(d.altTxt), "%.0f ft", (double)ac.altBaro);
 
