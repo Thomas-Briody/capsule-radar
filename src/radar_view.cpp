@@ -126,7 +126,7 @@ static std::map<std::string, std::vector<lv_point_t>> s_trails;
 
 // STEP 1 BUILD: silhouettes are disabled while we isolate the LVGL draw hang.
 // Set to 1 only after the size-only build is confirmed working on the device.
-#define GLYPH_SILHOUETTES 0
+#define GLYPH_SILHOUETTES 1
 
 static const float GX[4] = { 0.0f,  7.0f, 0.0f, -7.0f };   // original convex dart
 static const float GY[4] = { -11.0f, 5.0f, 8.0f, 5.0f };
