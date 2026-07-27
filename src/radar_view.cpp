@@ -124,6 +124,14 @@ struct AcDraw {
 static std::vector<AcDraw> s_acs;
 static std::map<std::string, std::vector<lv_point_t>> s_trails;
 
+// STEP 1 BUILD: silhouettes are disabled while we isolate the LVGL draw hang.
+// Set to 1 only after the size-only build is confirmed working on the device.
+#define GLYPH_SILHOUETTES 0
+
+static const float GX[4] = { 0.0f,  7.0f, 0.0f, -7.0f };   // original convex dart
+static const float GY[4] = { -11.0f, 5.0f, 8.0f, 5.0f };
+
+#if GLYPH_SILHOUETTES
 // ---------------------- aircraft glyph silhouettes ---------------------------
 // Instead of one generic dart for everything, pick a planform from the ICAO type
 // code so a 777 doesn't look like a Cessna. Points are local coords (nose = -y),
@@ -185,6 +193,7 @@ static uint8_t shape_for_type(const char *t) {
     for (const char **p = LIGHT; *p; ++p) if (pfx(t, *p)) return SHAPE_LIGHT;
     return SHAPE_NARROW;
 }
+#endif  // GLYPH_SILHOUETTES
 
 // Plane glyph size. The original dart was ~14×19 px — small on the 466 px round
 // AMOLED. GLYPH_SCALE_BASE enlarges every phosphor-family glyph (and its emergency
@@ -526,31 +535,18 @@ static void ac_draw_cb(lv_event_t *e) {
             draw_trail(d, ac, ac.color);
             const float th = ((ac.track != ac.track) ? 0.0f : ac.track) * (float)M_PI / 180.0f;
             const float c = cosf(th), s = sinf(th);
-            const GlyphShape &gs = GLYPHS[ac.shape < SHAPE_COUNT ? ac.shape : SHAPE_NARROW];
-            const float kk = k * gs.k;
             lv_draw_rect_dsc_t g;
             lv_draw_rect_dsc_init(&g);
             g.bg_color = ac.color;
             g.bg_opa = LV_OPA_COVER;
-            lv_point_t pts[GLYPH_MAX_PTS];
-            for (int q = 0; q < gs.nparts; ++q) {          // each part is convex
-                const GlyphPart &pt = gs.part[q];
-                for (int i = 0; i < pt.n; ++i) {
-                    const float x = (pt.x[i] * c - pt.y[i] * s) * kk;
-                    const float y = (pt.x[i] * s + pt.y[i] * c) * kk;
-                    pts[i].x = (lv_coord_t)(ac.pos.x + (lv_coord_t)lroundf(x));
-                    pts[i].y = (lv_coord_t)(ac.pos.y + (lv_coord_t)lroundf(y));
-                }
-                lv_draw_polygon(d, &g, pts, pt.n);
+            lv_point_t pts[4];
+            for (int i = 0; i < 4; ++i) {                  // original convex dart, scaled
+                const float x = (GX[i] * c - GY[i] * s) * k;
+                const float y = (GX[i] * s + GY[i] * c) * k;
+                pts[i].x = (lv_coord_t)(ac.pos.x + (lv_coord_t)lroundf(x));
+                pts[i].y = (lv_coord_t)(ac.pos.y + (lv_coord_t)lroundf(y));
             }
-            if (ac.shape == SHAPE_HELI) {          // rotor disc over the fuselage
-                lv_draw_arc_dsc_t rd;
-                lv_draw_arc_dsc_init(&rd);
-                rd.color = ac.color;
-                rd.width = 2;
-                rd.opa = 130;
-                lv_draw_arc(d, &rd, &ac.pos, (lv_coord_t)lroundf(11.0f * kk), 0, 360);
-            }
+            lv_draw_polygon(d, &g, pts, 4);
             if (ac.emergency) {
                 lv_draw_arc_dsc_t h;
                 lv_draw_arc_dsc_init(&h);
@@ -856,7 +852,11 @@ void update(const std::vector<Aircraft> &aircraft, const RadarSettings &s) {
         d.distKm = (float)distKm;
         d.bearingDeg = (float)brg;
         d.squawk = ac.squawk;
+#if GLYPH_SILHOUETTES
         d.shape = shape_for_type(d.type);        // planform from the ICAO type code
+#else
+        d.shape = 0;
+#endif
         if (ac.onGround) snprintf(d.altTxt, sizeof(d.altTxt), "GND");
         else             snprintf(d.altTxt, sizeof(d.altTxt), "%.0f ft", (double)ac.altBaro);
 
