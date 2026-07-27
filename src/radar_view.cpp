@@ -124,8 +124,10 @@ struct AcDraw {
 static std::vector<AcDraw> s_acs;
 static std::map<std::string, std::vector<lv_point_t>> s_trails;
 
-// STEP 1 BUILD: silhouettes are disabled while we isolate the LVGL draw hang.
-// Set to 1 only after the size-only build is confirmed working on the device.
+// Per-type aircraft silhouettes. Set to 0 to fall back to the plain dart glyph.
+// Every silhouette is built from CONVEX parts — LVGL 8.4's lv_draw_sw_polygon()
+// states "Only convex polygons are supported", and a concave outline makes its
+// edge-walk spin forever, wedging the UI task (panel freezes, rest keeps running).
 #define GLYPH_SILHOUETTES 1
 
 static const float GX[4] = { 0.0f,  7.0f, 0.0f, -7.0f };   // original convex dart
@@ -539,6 +541,32 @@ static void ac_draw_cb(lv_event_t *e) {
             lv_draw_rect_dsc_init(&g);
             g.bg_color = ac.color;
             g.bg_opa = LV_OPA_COVER;
+#if GLYPH_SILHOUETTES
+            // Each part is convex — LVGL's lv_draw_sw_polygon() documents
+            // "Only convex polygons are supported", and a concave outline makes its
+            // edge-walk loop forever (mask_cnt never advances), wedging the UI task.
+            const GlyphShape &gsh = GLYPHS[ac.shape < SHAPE_COUNT ? ac.shape : SHAPE_NARROW];
+            const float kk = k * gsh.k;
+            lv_point_t pts[GLYPH_MAX_PTS];
+            for (int q = 0; q < gsh.nparts; ++q) {
+                const GlyphPart &gp = gsh.part[q];
+                for (int i = 0; i < gp.n; ++i) {
+                    const float x = (gp.x[i] * c - gp.y[i] * s) * kk;
+                    const float y = (gp.x[i] * s + gp.y[i] * c) * kk;
+                    pts[i].x = (lv_coord_t)(ac.pos.x + (lv_coord_t)lroundf(x));
+                    pts[i].y = (lv_coord_t)(ac.pos.y + (lv_coord_t)lroundf(y));
+                }
+                lv_draw_polygon(d, &g, pts, gp.n);
+            }
+            if (ac.shape == SHAPE_HELI) {          // rotor disc over the fuselage
+                lv_draw_arc_dsc_t rd;
+                lv_draw_arc_dsc_init(&rd);
+                rd.color = ac.color;
+                rd.width = 2;
+                rd.opa = 130;
+                lv_draw_arc(d, &rd, &ac.pos, (lv_coord_t)lroundf(11.0f * kk), 0, 360);
+            }
+#else
             lv_point_t pts[4];
             for (int i = 0; i < 4; ++i) {                  // original convex dart, scaled
                 const float x = (GX[i] * c - GY[i] * s) * k;
@@ -547,6 +575,7 @@ static void ac_draw_cb(lv_event_t *e) {
                 pts[i].y = (lv_coord_t)(ac.pos.y + (lv_coord_t)lroundf(y));
             }
             lv_draw_polygon(d, &g, pts, 4);
+#endif
             if (ac.emergency) {
                 lv_draw_arc_dsc_t h;
                 lv_draw_arc_dsc_init(&h);
